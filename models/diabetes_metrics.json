@@ -1,0 +1,52 @@
+{
+  "dataset": "diabetes",
+  "features": [
+    "age",
+    "pregnancies",
+    "glucose",
+    "blood_pressure",
+    "skin_thickness",
+    "insulin",
+    "bmi",
+    "diabetes_pedigree",
+    "hba1c_level",
+    "blood_glucose_level",
+    "gender_Female",
+    "gender_Male",
+    "smoking_history_current",
+    "smoking_history_former",
+    "smoking_history_never",
+    "smoking_history_ever",
+    "smoking_history_not current",
+    "hypertension",
+    "heart_disease"
+  ],
+  "auc": 0.7007951449724619,
+  "report": {
+    "0": {
+      "precision": 0.6885061306197348,
+      "recall": 0.7608886021108909,
+      "f1-score": 0.7228899835796387,
+      "support": 43394.0
+    },
+    "1": {
+      "precision": 0.5426858830270175,
+      "recall": 0.4518366298484459,
+      "f1-score": 0.4931117340808971,
+      "support": 27251.0
+    },
+    "accuracy": 0.6416731545049189,
+    "macro avg": {
+      "precision": 0.6155960068233761,
+      "recall": 0.6063626159796685,
+      "f1-score": 0.6080008588302679,
+      "support": 70645.0
+    },
+    "weighted avg": {
+      "precision": 0.6322566074100364,
+      "recall": 0.6416731545049189,
+      "f1-score": 0.6342540280684177,
+      "support": 70645.0
+    }
+  }
+}

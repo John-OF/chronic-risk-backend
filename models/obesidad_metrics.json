@@ -1,0 +1,52 @@
+{
+  "dataset": "obesidad",
+  "features": [
+    "age",
+    "pregnancies",
+    "glucose",
+    "blood_pressure",
+    "skin_thickness",
+    "insulin",
+    "bmi",
+    "diabetes_pedigree",
+    "hba1c_level",
+    "blood_glucose_level",
+    "gender_Female",
+    "gender_Male",
+    "smoking_history_current",
+    "smoking_history_former",
+    "smoking_history_never",
+    "smoking_history_ever",
+    "smoking_history_not current",
+    "hypertension",
+    "heart_disease"
+  ],
+  "auc": 0.9999968055156222,
+  "report": {
+    "0": {
+      "precision": 0.9998526874026684,
+      "recall": 0.9991587979222308,
+      "f1-score": 0.9995056222322733,
+      "support": 47551.0
+    },
+    "1": {
+      "precision": 0.9982704198555801,
+      "recall": 0.9996968909673508,
+      "f1-score": 0.9989831461889618,
+      "support": 23094.0
+    },
+    "accuracy": 0.9993347016774011,
+    "macro avg": {
+      "precision": 0.9990615536291243,
+      "recall": 0.9994278444447908,
+      "f1-score": 0.9992443842106176,
+      "support": 70645.0
+    },
+    "weighted avg": {
+      "precision": 0.9993354407931071,
+      "recall": 0.9993347016774011,
+      "f1-score": 0.9993348237080433,
+      "support": 70645.0
+    }
+  }
+}
