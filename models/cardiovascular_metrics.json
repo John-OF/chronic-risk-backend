@@ -18,34 +18,33 @@
     "smoking_history_never",
     "smoking_history_ever",
     "smoking_history_not current",
-    "hypertension",
-    "heart_disease"
+    "hypertension"
   ],
-  "auc": 0.7125737618501994,
+  "auc": 0.8190101902440028,
   "report": {
     "0": {
-      "precision": 0.6895606730115568,
-      "recall": 0.7573438484332345,
-      "f1-score": 0.7218645405922318,
-      "support": 42859.0
+      "precision": 0.9367723246615788,
+      "recall": 0.8365198069875802,
+      "f1-score": 0.8838121934127541,
+      "support": 60307.0
     },
     "1": {
-      "precision": 0.5588172909684809,
-      "recall": 0.4740876700496653,
-      "f1-score": 0.5129772775949687,
-      "support": 27786.0
+      "precision": 0.4128751786565031,
+      "recall": 0.6706326175275682,
+      "f1-score": 0.5110947290821968,
+      "support": 10338.0
     },
-    "accuracy": 0.6459338948262439,
+    "accuracy": 0.8122443201925118,
     "macro avg": {
-      "precision": 0.6241889819900188,
-      "recall": 0.61571575924145,
-      "f1-score": 0.6174209090936003,
+      "precision": 0.674823751659041,
+      "recall": 0.7535762122575742,
+      "f1-score": 0.6974534612474754,
       "support": 70645.0
     },
     "weighted avg": {
-      "precision": 0.6381368551412346,
-      "recall": 0.6459338948262439,
-      "f1-score": 0.6397052725670078,
+      "precision": 0.8601066201474522,
+      "recall": 0.8122443201925118,
+      "f1-score": 0.8292697184145333,
       "support": 70645.0
     }
   }

@@ -1,6 +1,11 @@
 import json
 import os
+import sqlite3
+import datetime
 from typing import Dict, Any, List
+
+import random
+import glob  # <--- NUEVO: Para buscar archivos por patrón
 
 import numpy as np
 import pandas as pd
@@ -12,6 +17,7 @@ app = Flask(__name__)
 CORS(app)
 
 BASE_MODELS = "models"
+DB_NAME = "medical_history.db"  # <--- Nombre de tu Base de Datos
 
 # Archivos por enfermedad
 FILES = {
@@ -37,10 +43,47 @@ FILES = {
     },
 }
 
-# Cache de modelos y features
 MODELS: Dict[str, Any] = {}
 FEATURES: Dict[str, List[str]] = {}
 
+# ==========================================
+# 1. FUNCIÓN DE BASE DE DATOS (NUEVO)
+# ==========================================
+def init_db():
+    """Crea la tabla si no existe. Esto cumple con el requisito de tesis."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS predictions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            disease TEXT,
+            input_data TEXT,
+            prediction INTEGER,
+            probability REAL,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+def log_prediction_to_db(disease, input_data, prediction, probability):
+    """Guarda el historial de uso."""
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        # Guardamos el input como texto JSON para no complicarnos con columnas
+        cursor.execute('''
+            INSERT INTO predictions (disease, input_data, prediction, probability)
+            VALUES (?, ?, ?, ?)
+        ''', (disease, json.dumps(input_data), int(prediction), float(probability)))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"⚠️ Error guardando en BD: {e}")
+
+# ==========================================
+# CARGA DE MODELOS
+# ==========================================
 def _load_all():
     for dis, paths in FILES.items():
         if os.path.exists(paths["pipeline"]):
@@ -50,24 +93,77 @@ def _load_all():
                 FEATURES[dis] = json.load(f)
 
 def _safe_get(payload: Dict[str, Any], key: str):
-    """Obtiene payload[key]. Si el feature tiene espacios, acepta también la versión con '_'."""
-    if key in payload:
-        return payload[key]
+    if key in payload: return payload[key]
     if " " in key:
         alt = key.replace(" ", "_")
-        if alt in payload:
-            return payload[alt]
-    # soporte extra: si el cliente manda todo en minúsculas
+        if alt in payload: return payload[alt]
     low = {k.lower(): v for k, v in payload.items()}
-    if key.lower() in low:
-        return low[key.lower()]
+    if key.lower() in low: return low[key.lower()]
     if " " in key and key.replace(" ", "_").lower() in low:
         return low[key.replace(" ", "_").lower()]
     return None
 
+# ==========================================
+# FUNCIÓN AUXILIAR PARA DATOS SINTÉTICOS (CORREGIDA)
+# ==========================================
+def get_random_sample(disease):
+    """
+    Busca un archivo de datos SINTÉTICOS (generados por GAN/TVAE) en data_curated.
+    Si no encuentra ninguno, hace fallback a los datos reales procesados.
+    """
+    disease = disease.lower()
+    
+    # 1. Intentar buscar en data_curated (Tus datos CTGAN/TVAE de la captura)
+    # Ruta: backend/data_curated/nombre_enfermedad/nombre_enfermedad_synthetic*.csv
+    curated_path = os.path.join("data_curated", disease, f"{disease}_synthetic*.csv")
+    
+    # Usamos glob para encontrar cualquier archivo que coincida con el patrón (sin importar el seed)
+    found_files = glob.glob(curated_path)
+    
+    csv_path = None
+    source_type = "real" # Para saber si estamos devolviendo sintético o real
+
+    if found_files:
+        # Si hay varios, tomamos el primero (usualmente el CTGAN o el que haya salido)
+        csv_path = found_files[0]
+        source_type = "synthetic"
+        print(f"🎲 Usando datos sintéticos desde: {os.path.basename(csv_path)}")
+    else:
+        # 2. Fallback: Si no has corrido el script de síntesis, usamos data_processed
+        csv_path = os.path.join("data_processed", f"{disease}_dataset.csv")
+        print(f"⚠️ No se hallaron sintéticos para {disease}. Usando datos reales procesados.")
+
+    if not os.path.exists(csv_path):
+        return None
+
+    try:
+        df = pd.read_csv(csv_path)
+        
+        # Quitamos la columna target si existe (para no spoilear el resultado en el form)
+        if "target" in df.columns:
+            df = df.drop(columns=["target"])
+            
+        # Seleccionamos 1 fila al azar
+        sample = df.sample(1).iloc[0].to_dict()
+        
+        # Convertimos tipos de numpy a nativos de python (evita errores de JSON)
+        for key, val in sample.items():
+            if isinstance(val, (np.integer, np.int64)):
+                sample[key] = int(val)
+            elif isinstance(val, (np.floating, np.float64)):
+                sample[key] = round(float(val), 2)
+        
+        # Agregamos una marquita para que sepas en el frontend si es sintético real
+        sample['_source_type'] = source_type
+                
+        return sample
+    except Exception as e:
+        print(f"⚠️ Error leyendo CSV: {e}")
+        return None
+
 @app.get("/health")
 def health():
-    return jsonify({"status": "ok"})
+    return jsonify({"status": "ok", "database": "sqlite_connected"})
 
 @app.get("/metrics/<disease>")
 def get_metrics(disease: str):
@@ -83,32 +179,18 @@ def get_metrics(disease: str):
 
 @app.get("/config/<disease>")
 def get_config(disease: str):
-    """Config mínima para sliders/inputs del frontend."""
     disease = disease.lower()
     if disease not in FEATURES:
         return jsonify({"error": "features not found"}), 404
-
     feats = FEATURES[disease]
-    # rangos genéricos (ajústalos si tus diccionarios definen otros)
-    ranges = {
-        "age": [18, 100],
-        "bmi": [15, 50],
-        "glucose": [60, 260],
-        "blood_pressure": [60, 130]
-    }
-    # detecta dummies de género y tabaco según features
+    ranges = { "age": [18, 100], "bmi": [15, 50], "glucose": [60, 260], "blood_pressure": [60, 130] }
     gender_opts = sorted([f.split("gender_")[1] for f in feats if f.startswith("gender_")])
     smoke_opts  = sorted([f.split("smoking_history_")[1] for f in feats if f.startswith("smoking_history_")])
-
     return jsonify({
         "disease": disease,
         "features": feats,
         "ranges": ranges,
-        "categoricals": {
-            "gender": gender_opts,
-            "smoking_history": smoke_opts
-        },
-        "note": "Para claves con espacio (p.ej. 'smoking_history_not current'), también se acepta 'smoking_history_not_current'."
+        "categoricals": { "gender": gender_opts, "smoking_history": smoke_opts }
     })
 
 @app.post("/predict/<disease>")
@@ -122,33 +204,109 @@ def predict(disease: str):
     except Exception:
         return jsonify({"error": "invalid JSON"}), 400
 
-    # construimos el vector X en el orden EXACTO de FEATURES
     feats = FEATURES[disease]
     row = []
     missing = []
+    
+    # Variables clave para las reglas
+    clinical_glucose = 0
+    clinical_hba1c = 0
+    clinical_bp = 0
+    clinical_bmi = 0
+
     for f in feats:
         val = _safe_get(payload, f)
+        
+        # Capturamos valores clínicos
+        if f in ["glucose", "blood_glucose_level"]: clinical_glucose = float(val or 0)
+        if f == "hba1c_level": clinical_hba1c = float(val or 0)
+        if f == "blood_pressure": clinical_bp = float(val or 0)
+        if f == "bmi": clinical_bmi = float(val or 0)
+
         if val is None:
-            # si es dummy (e.g., gender_Male) y no vino, asumimos 0
             if f.startswith(("gender_", "smoking_history_", "cholesterol_", "glucose_", "bp_", "ethnicity_", "race_")) or "_" in f:
                 val = 0
             else:
-                # variables numéricas importantes se ponen 0 si faltan
                 val = 0
                 missing.append(f)
         row.append(val)
 
     X = np.array([row], dtype=float)
     model = MODELS[disease]
-    # scikit pipelines soportan predict_proba
+    
+    # 1. Predicción Base de la IA
     if hasattr(model, "predict_proba"):
         prob = float(model.predict_proba(X)[0, 1])
     else:
-        # fallback (no debería entrar)
         pred = int(model.predict(X)[0])
         prob = float(pred)
 
+    # =========================================================================
+    # 🚑 REGLAS CLÍNICAS PROGRESIVAS (Dynamic Expert System)
+    # Ahora la probabilidad escala suavemente con la gravedad del síntoma.
+    # =========================================================================
+    
+    # --- DIABETES ---
+    if disease == "diabetes":
+        # Glucosa > 200 es diabetes casi segura.
+        if clinical_glucose >= 200:
+             prob = max(prob, 0.96)
+        # Rango Diabético (126 - 200): Escala de 0.85 a 0.95
+        elif clinical_glucose >= 126:
+            extra = (clinical_glucose - 126) * 0.001 # Sube un poco por cada mg/dL extra
+            prob = max(prob, 0.85 + extra)
+        # Prediabetes (100 - 125): Escala de 0.40 a 0.60 (Puente para que no se caiga a 0)
+        elif clinical_glucose >= 100:
+            extra = (clinical_glucose - 100) * 0.008 
+            prob = max(prob, 0.40 + extra)
+        
+        # HbA1c también empuja hacia arriba
+        if clinical_hba1c >= 6.5:
+            extra_a1c = (clinical_hba1c - 6.5) * 0.05
+            prob = max(prob, 0.85 + extra_a1c)
+
+    # --- HIPERTENSIÓN (Aquí arreglamos tu problema) ---
+    elif disease == "hipertension":
+        # Crisis Hipertensiva (>180): Casi 100%
+        if clinical_bp >= 180:
+            prob = max(prob, 0.98)
+            
+        # Hipertensión Grado 2 (140 - 180): Escala de 0.85 a 0.97
+        elif clinical_bp >= 140:
+            # Por cada punto arriba de 140, sumamos 0.003 (ej. 160 -> +0.06)
+            extra = (clinical_bp - 140) * 0.003
+            prob = max(prob, 0.85 + extra)
+            
+        # Hipertensión Grado 1 (130 - 139): Escala de 0.60 a 0.80
+        elif clinical_bp >= 130:
+            extra = (clinical_bp - 130) * 0.02 
+            prob = max(prob, 0.60 + extra)
+            
+        # Elevada (120 - 129): Escala de 0.30 a 0.50 (Para que no se desplome a 0)
+        elif clinical_bp >= 120:
+            extra = (clinical_bp - 120) * 0.02
+            prob = max(prob, 0.30 + extra)
+
+    # --- OBESIDAD ---
+    elif disease == "obesidad":
+        if clinical_bmi >= 40: # Obesidad mórbida
+            prob = max(prob, 0.99)
+        elif clinical_bmi >= 30: # Obesidad
+            # Escalar entre 0.90 y 0.98 según qué tan alto sea el BMI
+            extra = (clinical_bmi - 30) * 0.005
+            prob = max(prob, 0.90 + extra)
+        elif clinical_bmi >= 25: # Sobrepeso (riesgo medio)
+            extra = (clinical_bmi - 25) * 0.04
+            prob = max(prob, 0.40 + extra)
+
+    # Limitar siempre a máximo 1.0 (por si la suma se pasa)
+    prob = min(prob, 1.0)
+    # =========================================================================
+
     pred_class = 1 if prob >= 0.5 else 0
+    
+    log_prediction_to_db(disease, payload, pred_class, prob)
+
     return jsonify({
         "disease": disease,
         "probability": prob,
@@ -156,7 +314,24 @@ def predict(disease: str):
         "missing_filled_as_zero": missing
     })
 
+@app.get("/synthetic/<disease>")
+def get_synthetic(disease):
+    disease = disease.lower()
+    
+    # Validar que la enfermedad existe en tu sistema
+    if disease not in FILES:
+        return jsonify({"error": "disease not supported"}), 404
+        
+    sample = get_random_sample(disease)
+    
+    if not sample:
+        # Fallback: Si no hay CSV, devolvemos un error controlado
+        return jsonify({"error": "could not generate synthetic data"}), 500
+        
+    return jsonify(sample)
+
 if __name__ == "__main__":
     _load_all()
-    # Flask dev server (suficiente para local/Windows)
+    init_db()  # <--- Inicializa la BD al arrancar
+    print("✅ Backend corriendo con Base de Datos SQLite activa.")
     app.run(host="0.0.0.0", port=8000, debug=True)
