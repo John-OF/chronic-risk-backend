@@ -63,7 +63,7 @@ def load_split_or_fallback(name: str):
         train_df = pd.read_csv(curated_train, low_memory=False)
         test_df  = pd.read_csv(curated_test,  low_memory=False)
     else:
-        print(f"   (⚠️ Usando fallback: split directo de {processed_all})")
+        print(f"   (Usando fallback: split directo de {processed_all})")
         df = pd.read_csv(processed_all, low_memory=False)
         train_df, test_df = train_test_split(
             df, test_size=0.2, random_state=42, stratify=df["target"]
@@ -94,7 +94,7 @@ def train_one(name: str):
             test_df[c] = 0
 
     # ==========================================================
-    # 🚑 SANITIZACIÓN DE EMERGENCIA (Esto arregla el error 'High')
+    # SANITIZACIÓN DE EMERGENCIA (Esto arregla el error 'High')
     # ==========================================================
     print("   ...Sanitizando datos (convirtiendo textos a números)...")
     for col in current_features:
@@ -139,10 +139,10 @@ def train_one(name: str):
         with open(os.path.join(MODELS_DIR, f"{name}_features.json"), "w", encoding="utf-8") as f:
             json.dump(current_features, f)
 
-        print(f"✅ {name}: AUC={auc:.3f} | Features={len(current_features)} | Modelo guardado.")
+        print(f"{name}: AUC={auc:.3f} | Features={len(current_features)} | Modelo guardado.")
     
     except Exception as e:
-        print(f"❌ Error entrenando {name}: {e}")
+        print(f"Error entrenando {name}: {e}")
 
 def main():
     for name in DATASETS:

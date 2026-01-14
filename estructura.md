@@ -12,7 +12,4 @@ backend/
 │
 ├── prepare_datasets.py       # Limpieza y preparación de datos
 ├── curate_and_synthesize.py  # Generación de datos sintéticos (GAN/TVAE)
-├── train_models.py           # Entrenamiento de modelos ML
-├── check_processed.py        # Verificación rápida de datos procesados
-├── tmp_check_targets.py      # Utilidades de depuración
-└── tmp_verify_curated.py     # Utilidades de verificación
+└── train_models.py           # Entrenamiento de modelos ML

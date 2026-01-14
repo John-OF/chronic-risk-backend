@@ -3,7 +3,7 @@ REST API desarrollada en Python/Flask para el procesamiento de datos tabulares, 
 
 ---
 
-## 🚀 Características principales
+## Características principales
 
 - Predicción de riesgo para enfermedades crónicas (diabetes, hipertensión, obesidad, cardiovascular, etc.).
 - Carga automática de modelos entrenados desde la carpeta `models/`.
@@ -12,7 +12,6 @@ REST API desarrollada en Python/Flask para el procesamiento de datos tabulares, 
   - limpieza y curación de datos (`prepare_datasets.py`)
   - generación de datos sintéticos (`curate_and_synthesize.py`)
   - entrenamiento de modelos (`train_models.py`)
-  - verificación de datos (`check_processed.py`, `tmp_*`)
 - API tipo REST con endpoints para:
   - `/health` → estado del servicio  
   - `/metrics/<disease>` → métricas de cada modelo  
@@ -21,24 +20,15 @@ REST API desarrollada en Python/Flask para el procesamiento de datos tabulares, 
 
 ---
 
-## 🛠️ Requisitos
+## Requisitos
 
 - Python 3.9 o superior
 - pip instalado
-- (Opcional) entorno virtual
+- entorno virtual de python
 
 ---
 
-## 📦 Instalación
-
-Clona el repositorio:
-
-```bash
-git clone https://github.com/John-OF/chronic-risk-backend
-cd chronic-risk-backend
-
-
-## Installation
+## Instalación
 
 pip install -r requirements.txt
 

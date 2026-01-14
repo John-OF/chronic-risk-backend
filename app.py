@@ -5,7 +5,7 @@ import datetime
 from typing import Dict, Any, List
 
 import random
-import glob  # <--- NUEVO: Para buscar archivos por patrón
+import glob
 
 import numpy as np
 import pandas as pd
@@ -17,7 +17,7 @@ app = Flask(__name__)
 CORS(app)
 
 BASE_MODELS = "models"
-DB_NAME = "medical_history.db"  # <--- Nombre de tu Base de Datos
+DB_NAME = "medical_history.db"  # <--- Nombre de la Base de Datos
 
 # Archivos por enfermedad
 FILES = {
@@ -47,7 +47,7 @@ MODELS: Dict[str, Any] = {}
 FEATURES: Dict[str, List[str]] = {}
 
 # ==========================================
-# 1. FUNCIÓN DE BASE DE DATOS (NUEVO)
+# 1. FUNCIÓN DE BASE DE DATOS
 # ==========================================
 def init_db():
     """Crea la tabla si no existe. Esto cumple con el requisito de tesis."""
@@ -104,32 +104,36 @@ def _safe_get(payload: Dict[str, Any], key: str):
     return None
 
 # ==========================================
-# FUNCIÓN AUXILIAR PARA DATOS SINTÉTICOS (CORREGIDA)
+# FUNCIÓN AUXILIAR PARA DATOS SINTÉTICOS
 # ==========================================
 def get_random_sample(disease):
     """
-    Busca un archivo de datos SINTÉTICOS (generados por GAN/TVAE) en data_curated.
-    Si no encuentra ninguno, hace fallback a los datos reales procesados.
+    Busca datos SINTÉTICOS priorizando CTGAN (que son los médicamente correctos).
     """
     disease = disease.lower()
+    base_dir = os.path.join("data_curated", disease)
     
-    # 1. Intentar buscar en data_curated (Tus datos CTGAN/TVAE de la captura)
-    # Ruta: backend/data_curated/nombre_enfermedad/nombre_enfermedad_synthetic*.csv
-    curated_path = os.path.join("data_curated", disease, f"{disease}_synthetic*.csv")
+    # 1. Intentar buscar específicamente CTGAN primero (Recomendado)
+    ctgan_pattern = os.path.join(base_dir, f"{disease}_synthetic_ctgan*.csv")
+    found_files = glob.glob(ctgan_pattern)
     
-    # Usamos glob para encontrar cualquier archivo que coincida con el patrón (sin importar el seed)
-    found_files = glob.glob(curated_path)
-    
+    # 2. Si no hay CTGAN, buscar cualquier otro sintético (Fallback, por si acaso)
+    if not found_files:
+        print(f"⚠️ No se encontró CTGAN para {disease}, buscando otros...")
+        any_pattern = os.path.join(base_dir, f"{disease}_synthetic*.csv")
+        found_files = glob.glob(any_pattern)
+
     csv_path = None
-    source_type = "real" # Para saber si estamos devolviendo sintético o real
+    source_type = "real"
 
     if found_files:
-        # Si hay varios, tomamos el primero (usualmente el CTGAN o el que haya salido)
+        # Tomamos el primero (ahora seguro será CTGAN si existe)
         csv_path = found_files[0]
         source_type = "synthetic"
-        print(f"🎲 Usando datos sintéticos desde: {os.path.basename(csv_path)}")
+        # Opcional: imprimir cuál estamos usando para estar seguros
+        print(f"🎲 Usando datos sintéticos: {os.path.basename(csv_path)}")
     else:
-        # 2. Fallback: Si no has corrido el script de síntesis, usamos data_processed
+        # 3. Fallback final: Datos reales procesados
         csv_path = os.path.join("data_processed", f"{disease}_dataset.csv")
         print(f"⚠️ No se hallaron sintéticos para {disease}. Usando datos reales procesados.")
 
@@ -139,23 +143,18 @@ def get_random_sample(disease):
     try:
         df = pd.read_csv(csv_path)
         
-        # Quitamos la columna target si existe (para no spoilear el resultado en el form)
         if "target" in df.columns:
             df = df.drop(columns=["target"])
             
-        # Seleccionamos 1 fila al azar
         sample = df.sample(1).iloc[0].to_dict()
         
-        # Convertimos tipos de numpy a nativos de python (evita errores de JSON)
         for key, val in sample.items():
             if isinstance(val, (np.integer, np.int64)):
                 sample[key] = int(val)
             elif isinstance(val, (np.floating, np.float64)):
                 sample[key] = round(float(val), 2)
         
-        # Agregamos una marquita para que sepas en el frontend si es sintético real
         sample['_source_type'] = source_type
-                
         return sample
     except Exception as e:
         print(f"⚠️ Error leyendo CSV: {e}")
@@ -242,7 +241,7 @@ def predict(disease: str):
         prob = float(pred)
 
     # =========================================================================
-    # 🚑 REGLAS CLÍNICAS PROGRESIVAS (Dynamic Expert System)
+    # REGLAS CLÍNICAS PROGRESIVAS (Dynamic Expert System)
     # Ahora la probabilidad escala suavemente con la gravedad del síntoma.
     # =========================================================================
     
@@ -265,7 +264,7 @@ def predict(disease: str):
             extra_a1c = (clinical_hba1c - 6.5) * 0.05
             prob = max(prob, 0.85 + extra_a1c)
 
-    # --- HIPERTENSIÓN (Aquí arreglamos tu problema) ---
+    # --- HIPERTENSIÓN ---
     elif disease == "hipertension":
         # Crisis Hipertensiva (>180): Casi 100%
         if clinical_bp >= 180:
@@ -333,5 +332,5 @@ def get_synthetic(disease):
 if __name__ == "__main__":
     _load_all()
     init_db()  # <--- Inicializa la BD al arrancar
-    print("✅ Backend corriendo con Base de Datos SQLite activa.")
+    print("Backend corriendo con Base de Datos SQLite activa.")
     app.run(host="0.0.0.0", port=8000, debug=True)

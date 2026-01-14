@@ -62,7 +62,7 @@ def load_csvs():
     for name in CSV_FILES:
         path = os.path.join(RAW_DIR, name)
         if not os.path.exists(path):
-            print(f"⚠️ No existe: {name}")
+            print(f"No existe: {name}")
             continue
 
         df = None
@@ -82,15 +82,15 @@ def load_csvs():
                 pass
 
         if df is None:
-            print(f"❌ No se pudo cargar: {name}")
+            print(f"No se pudo cargar: {name}")
             continue
 
-        print(f"✅ Cargado: {name} -> {df.shape}")
+        print(f"Cargado: {name} -> {df.shape}")
         loaded.append((name, df))
     return loaded
 
 # =========================================================
-# 2. DETECTORES (Sin cambios mayores)
+# 2. DETECTORES
 # =========================================================
 def is_pima_like(df):
     needed = {"Pregnancies", "Glucose", "BloodPressure", "BMI", "Age", "Outcome"}
@@ -122,7 +122,7 @@ def is_cardio_kaggle(df):
     return "cardio" in cols and "ap_hi" in cols
 
 # =========================================================
-# 3. NORMALIZADORES (CORREGIDOS: Usan np.nan en vez de 0)
+# 3. NORMALIZADORES
 # =========================================================
 
 def init_df(rows):
@@ -328,14 +328,14 @@ def normalize_unknown(df):
     return init_df(len(df))
 
 # =========================================================
-# 4. POST-PROCESAMIENTO E IMPUTACIÓN (NUEVO)
+# 4. POST-PROCESAMIENTO E IMPUTACIÓN
 # =========================================================
 def fill_missing_values(df):
     """
     Rellena NaNs con la Mediana de la columna.
     Si la columna está vacía entera, usa MEDICAL_DEFAULTS.
     """
-    print("🚑 Ejecutando imputación de datos faltantes...")
+    print("Ejecutando imputación de datos faltantes...")
     
     physiological_cols = ["glucose", "hba1c_level", "bmi", "blood_pressure", "age"]
     
@@ -376,7 +376,7 @@ def finalize_schema(df):
     return df
 
 # =========================================================
-# 5. MAIN (CORREGIDO)
+# 5. MAIN
 # =========================================================
 def main():
     loaded = load_csvs()
@@ -411,7 +411,7 @@ def main():
         normalized.append(nd)
 
     if not normalized:
-        print("❌ No se generaron datos.")
+        print("No se generaron datos.")
         return
 
     # Unir todo en un gran dataset maestro
@@ -421,12 +421,12 @@ def main():
     full_df = fill_missing_values(full_df)
     full_df = finalize_schema(full_df)
 
-    # ⚠️ CORRECCIÓN AQUÍ: Forzar que el 'target' sea numérico antes de usarlo
+    # Forzar que el 'target' sea numérico antes de usarlo
     # Si hay texto ("positive", "yes", etc) que se nos pasó, esto lo intenta convertir.
     # Si falla, pone NaN y luego 0.
     full_df["target"] = pd.to_numeric(full_df["target"], errors='coerce').fillna(0)
 
-    print(f"\n📊 Dataset Maestro Generado: {full_df.shape}")
+    print(f"\n Dataset Maestro Generado: {full_df.shape}")
     print(full_df.describe().loc[['min', 'max', 'mean']])
 
     # =====================================================
@@ -438,7 +438,7 @@ def main():
     # Ahora ya es seguro comparar con 0.5 porque garantizamos que es numérico
     df_diab["target"] = (df_diab["target"] >= 0.5).astype(int)
     df_diab.to_csv(os.path.join(PROCESSED_DIR, "diabetes_dataset.csv"), index=False)
-    print("✅ diabetes_dataset.csv guardado.")
+    print("diabetes_dataset.csv guardado.")
 
     # 2. Hipertensión (Target = columna hypertension)
     df_hyp = full_df.copy()
@@ -446,13 +446,13 @@ def main():
     df_hyp["hypertension"] = pd.to_numeric(df_hyp["hypertension"], errors='coerce').fillna(0)
     df_hyp["target"] = (df_hyp["hypertension"] >= 0.5).astype(int)
     df_hyp.to_csv(os.path.join(PROCESSED_DIR, "hipertension_dataset.csv"), index=False)
-    print("✅ hipertension_dataset.csv guardado.")
+    print("hipertension_dataset.csv guardado.")
 
     # 3. Obesidad (Target = BMI >= 30)
     df_obe = full_df.copy()
     df_obe["target"] = (df_obe["bmi"] >= 30).astype(int)
     df_obe.to_csv(os.path.join(PROCESSED_DIR, "obesidad_dataset.csv"), index=False)
-    print("✅ obesidad_dataset.csv guardado.")
+    print("obesidad_dataset.csv guardado.")
 
     # 4. Cardiovascular (Target = heart_disease O original)
     df_cardio = full_df.copy()
@@ -464,7 +464,7 @@ def main():
     df_cardio["target"] = ((df_cardio["heart_disease"] == 1) | (df_cardio["target"] == 1)).astype(int)
     
     df_cardio.to_csv(os.path.join(PROCESSED_DIR, "cardiovascular_dataset.csv"), index=False)
-    print("✅ cardiovascular_dataset.csv guardado.")
+    print("cardiovascular_dataset.csv guardado.")
 
 if __name__ == "__main__":
     main()
