@@ -9,9 +9,14 @@ import glob
 
 import numpy as np
 import pandas as pd
+
+import shap
+
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from joblib import load
+
+EXPLAINERS: Dict[str, Any] = {}
 
 app = Flask(__name__)
 CORS(app)
@@ -81,6 +86,58 @@ def log_prediction_to_db(disease, input_data, prediction, probability):
     except Exception as e:
         print(f"⚠️ Error guardando en BD: {e}")
 
+
+# >>> SHAP START
+def _load_background_for_shap(disease: str, feats: List[str], n: int = 200) -> np.ndarray:
+    """
+    Carga datos reales o sintéticos para usar como background en SHAP.
+    NO afecta entrenamiento ni predicción.
+    """
+    curated_path = os.path.join("data_curated", disease, f"{disease}_train.csv")
+    processed_path = os.path.join("data_processed", f"{disease}_dataset.csv")
+    path = curated_path if os.path.exists(curated_path) else processed_path
+
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"No background data for SHAP ({disease})")
+
+    df = pd.read_csv(path, low_memory=False)
+    if "target" in df.columns:
+        df = df.drop(columns=["target"])
+
+    for c in feats:
+        if c not in df.columns:
+            df[c] = 0
+
+    df = df[feats].apply(pd.to_numeric, errors="coerce").fillna(0)
+
+    if len(df) > n:
+        df = df.sample(n, random_state=42)
+
+    return df.values.astype(float)
+
+
+def _build_shap_explainer(disease: str):
+    """
+    Construye el LinearExplainer para regresión logística.
+    Se ejecuta una sola vez al iniciar el backend.
+    """
+    pipe = MODELS[disease]
+    feats = FEATURES[disease]
+
+    scaler = pipe.named_steps["scaler"]
+    clf = pipe.named_steps["clf"]
+
+    Xb = _load_background_for_shap(disease, feats, n=200)
+    Xb_t = scaler.transform(Xb)
+
+    EXPLAINERS[disease] = shap.LinearExplainer(
+        clf,
+        Xb_t,
+        feature_perturbation="interventional"
+    )
+# >>> SHAP END
+
+
 # ==========================================
 # CARGA DE MODELOS
 # ==========================================
@@ -91,6 +148,14 @@ def _load_all():
         if os.path.exists(paths["features"]):
             with open(paths["features"], "r", encoding="utf-8") as f:
                 FEATURES[dis] = json.load(f)
+    # >>> SHAP START
+    for dis in MODELS:
+        try:
+            _build_shap_explainer(dis)
+        except Exception as e:
+            print(f"⚠️ SHAP no disponible para {dis}: {e}")
+    # >>> SHAP END
+
 
 def _safe_get(payload: Dict[str, Any], key: str):
     if key in payload: return payload[key]
@@ -202,6 +267,21 @@ def predict(disease: str):
         payload = request.get_json(force=True) or {}
     except Exception:
         return jsonify({"error": "invalid JSON"}), 400
+    
+    # ===============================
+    # Normalización de glucosa
+    # ===============================
+    # Para compatibilidad entre datasets:
+    # - glucose
+    # - blood_glucose_level
+    # Si solo llega uno, se copia al otro
+
+    if payload is not None:
+        if "glucose" in payload and "blood_glucose_level" not in payload:
+            payload["blood_glucose_level"] = payload["glucose"]
+
+        if "blood_glucose_level" in payload and "glucose" not in payload:
+            payload["glucose"] = payload["blood_glucose_level"]
 
     feats = FEATURES[disease]
     row = []
@@ -232,6 +312,7 @@ def predict(disease: str):
 
     X = np.array([row], dtype=float)
     model = MODELS[disease]
+    scaler = model.named_steps["scaler"]
     
     # 1. Predicción Base de la IA
     if hasattr(model, "predict_proba"):
@@ -239,6 +320,53 @@ def predict(disease: str):
     else:
         pred = int(model.predict(X)[0])
         prob = float(pred)
+
+    # >>> SHAP START
+    raw_model_probability = prob  # probabilidad base del modelo (antes de reglas clínicas)
+
+    top_features = []
+    explainer = EXPLAINERS.get(disease)
+
+    if explainer is not None:
+        Xt = scaler.transform(X)
+        shap_vals = explainer.shap_values(Xt)
+
+        if isinstance(shap_vals, list):
+            shap_vals = shap_vals[0]
+
+        shap_vals = np.array(shap_vals).reshape(-1)
+        x_row = X.reshape(-1)
+
+        # ============================
+        # FILTRO: omitir SOLO género
+        # ============================
+        allowed_idxs = [
+            i for i, name in enumerate(feats)
+            if not str(name).startswith("gender_")
+        ]
+
+        # Fallback de seguridad (por si el modelo no tiene feats o algo raro)
+        if not allowed_idxs:
+            allowed_idxs = list(range(len(feats)))
+
+        # Top 5 por impacto absoluto (solo dentro de allowed_idxs)
+        sorted_allowed = sorted(
+            allowed_idxs,
+            key=lambda i: abs(shap_vals[i]),
+            reverse=True
+        )[:5]
+
+        for i in sorted_allowed:
+            top_features.append({
+                "feature": feats[i],
+                "value": float(x_row[i]),
+                "shap": float(shap_vals[i]),
+                "abs_shap": float(abs(shap_vals[i]))
+            })
+    # >>> SHAP END
+
+
+
 
     # =========================================================================
     # REGLAS CLÍNICAS PROGRESIVAS (Dynamic Expert System)
@@ -257,7 +385,7 @@ def predict(disease: str):
         # Prediabetes (100 - 125): Escala de 0.40 a 0.60 (Puente para que no se caiga a 0)
         elif clinical_glucose >= 100:
             extra = (clinical_glucose - 100) * 0.008 
-            prob = max(prob, 0.40 + extra)
+            prob = max(prob, 0.30 + extra)
         
         # HbA1c también empuja hacia arriba
         if clinical_hba1c >= 6.5:
@@ -310,7 +438,10 @@ def predict(disease: str):
         "disease": disease,
         "probability": prob,
         "prediction": pred_class,
-        "missing_filled_as_zero": missing
+        "missing_filled_as_zero": missing,
+        "raw_model_probability": raw_model_probability,
+        "top_features": top_features,
+        "explain_note": "Las variables mostradas corresponden a los valores SHAP que explican la probabilidad base del modelo; la probabilidad final puede incluir reglas clínicas."
     })
 
 @app.get("/synthetic/<disease>")
