@@ -460,8 +460,10 @@ def get_synthetic(disease):
         
     return jsonify(sample)
 
+# Inicialización global (se ejecuta siempre)
+_load_all()
+init_db()
+
+# Inicialización local
 if __name__ == "__main__":
-    _load_all()
-    init_db()  # <--- Inicializa la BD al arrancar
-    print("Backend corriendo con Base de Datos SQLite activa.")
     app.run(host="0.0.0.0", port=8000, debug=True)
